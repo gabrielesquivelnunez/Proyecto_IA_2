@@ -128,7 +128,7 @@ def _graficar_y_guardar(out_df, column, nombre_modelo, steps, save_dir):
 
 
 # -----------------------------------------------------------------------------
-# Herramienta 1: KNN (regresión)
+#  KNN (regresión)
 # -----------------------------------------------------------------------------
 def predict_knn(dtf, column=None, horizon=None, end_date=None,
                 n_neighbors=15, lags=None, save_dir="predicciones_ml"):
@@ -160,10 +160,110 @@ def predict_knn(dtf, column=None, horizon=None, end_date=None,
         out_df = _predecir_recursivo(modelo, serie, lags, columnas_x, steps)
         ruta = _graficar_y_guardar(out_df, column, "KNN", steps, save_dir)
 
-        print("\n📈 Predicciones futuras (KNN):\n")
+        print("\n Predicciones futuras (KNN):\n")
         print(out_df.to_string(index=False))
-        print(f"\n💾 Guardado en: {ruta}")
+        print(f"\n Guardado en: {ruta}")
         return (f"Predicción KNN completada ({len(out_df)} puntos, "
                 f"k={n_neighbors}). Archivo: {ruta}")
     except Exception as e:
         return f"Error durante la predicción KNN: {e}"
+    
+
+# -----------------------------------------------------------------------------
+# Árbol de regresión
+# -----------------------------------------------------------------------------
+def predict_tree(dtf, column=None, horizon=None, end_date=None,
+                 max_depth=12, min_samples_leaf=5, lags=None,
+                 save_dir="predicciones_ml"):
+    """
+    Predice valores futuros con un árbol de regresión (DecisionTreeRegressor).
+
+    El árbol parte recursivamente el espacio de características y predice el
+    promedio de las hojas. No requiere escalado (es invariante a la escala de
+    cada variable). Se limita la profundidad (`max_depth`) y se exige un mínimo
+    de muestras por hoja (`min_samples_leaf`) para evitar sobreajuste.
+
+    Parámetros equivalentes a predict_knn, más:
+    max_depth        : profundidad máxima del árbol.
+    min_samples_leaf : muestras mínimas por hoja.
+    """
+    try:
+        if column is None or column not in dtf.columns:
+            return (f"Error: especifica una columna válida. "
+                    f"Columnas disponibles: {list(dtf.columns)}")
+
+        lags = lags or LAGS_DEFAULT
+        serie = dtf[column].dropna()
+        last_date = serie.index[-1]
+        steps = _interpretar_horizonte(horizon, end_date, last_date)
+
+        X, y, columnas_x = _construir_matriz(serie, lags)
+        modelo = DecisionTreeRegressor(
+            max_depth=max_depth,
+            min_samples_leaf=min_samples_leaf,
+            random_state=0,
+        )
+        modelo.fit(X, y)
+
+        out_df = _predecir_recursivo(modelo, serie, lags, columnas_x, steps)
+        ruta = _graficar_y_guardar(out_df, column, "Arbol", steps, save_dir)
+
+        print("\n Predicciones futuras (Árbol de regresión):\n")
+        print(out_df.to_string(index=False))
+        print(f"\n Guardado en: {ruta}")
+        return (f"Predicción Árbol de regresión completada ({len(out_df)} "
+                f"puntos, max_depth={max_depth}). Archivo: {ruta}")
+    except Exception as e:
+        return f"Error durante la predicción con árbol: {e}"
+
+
+# -----------------------------------------------------------------------------
+# Esquemas de herramienta (formato Ollama tools), igual que en main2.py
+# -----------------------------------------------------------------------------
+tool_predict_knn = {
+    "type": "function",
+    "function": {
+        "name": "predict_knn",
+        "description": (
+            "Predice valores futuros de la serie con K-Nearest Neighbors "
+            "(regresión), usando lags y variables de calendario. Grafica y "
+            "guarda las predicciones."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "column": {"type": "string",
+                           "description": "Columna a predecir, p.ej. 'MW'."},
+                "horizon": {"type": "integer",
+                            "description": "Horizonte de predicción en días."},
+                "n_neighbors": {"type": "integer",
+                                "description": "Número de vecinos k (opcional)."},
+            },
+            "required": ["column"],
+        },
+    },
+}
+
+tool_predict_tree = {
+    "type": "function",
+    "function": {
+        "name": "predict_tree",
+        "description": (
+            "Predice valores futuros de la serie con un árbol de regresión "
+            "(Decision Tree), usando lags y variables de calendario. Grafica "
+            "y guarda las predicciones."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "column": {"type": "string",
+                           "description": "Columna a predecir, p.ej. 'MW'."},
+                "horizon": {"type": "integer",
+                            "description": "Horizonte de predicción en días."},
+                "max_depth": {"type": "integer",
+                              "description": "Profundidad máxima del árbol (opcional)."},
+            },
+            "required": ["column"],
+        },
+    },
+}
